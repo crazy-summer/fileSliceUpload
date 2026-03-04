@@ -29,7 +29,7 @@ public class FileOperationService {
 
     public void slicedUpload(
             MultipartFile file, String fileId, Integer chunkIndex,
-            Integer chunkSize,Integer totalChunks, String fileName) {
+            Integer totalChunks, String fileName) {
         // 检查chunkIndex是否已经上传，如果已经上传，那么跳到下一步，如果没有上传，那么上传
         String redisKey = "slicedUpload:" + fileId;
         Boolean isUploaded = redisTemplate.opsForSet().isMember(redisKey, chunkIndex.toString());
@@ -72,8 +72,6 @@ public class FileOperationService {
             // 异步调用合并方法
             log.info("所有分片上传完成，开始合并文件: {}", fileId);
             mergeChunksAsync(fileId, totalChunks, fileName);
-
-            // 合并触发后，可以主动删除 Redis 标记，或留到合并成功后删除
         }
     }
     // 如果一个线程拿到锁上传分片但是失败了，应该删除锁，也不会设置chunkIndex到"slicedUpload:xxx",
@@ -109,17 +107,20 @@ public class FileOperationService {
         // 設置一個 10 分鐘的合併鎖
         String mergeLockKey = "lock:merge:" + fileId;
         Boolean canMerge = redisTemplate.opsForValue().setIfAbsent(mergeLockKey, "1", Duration.ofMinutes(10));
-        if (Boolean.FALSE.equals(canMerge)) return; // 已經有線程在合併了
+        if (Boolean.FALSE.equals(canMerge)) {
+            log.info("已经有其他线程正在合并");
+            return; // 已經有線程在合併了
+        }
 
         try {
             // 執行合併邏輯...
             String basePath = "C:\\Users\\sakur\\Documents\\upload";
             Path folderPath = Paths.get(basePath, fileId);
             // 最终生成的文件路径（可以放到另一个目录）
-            Path targetFilePath = Paths.get(basePath, fileName);
+            Path targetFilePath = Paths.get(basePath, fileId + "_" + fileName);
 
             try (FileChannel targetChannel = FileChannel.open(targetFilePath,
-                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
 
                 // 严格按照 chunkIndex 顺序合并，保证文件内容正确
                 for (int i = 0; i < totalChunks; i++) {
