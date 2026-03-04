@@ -13,6 +13,8 @@ import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -48,11 +50,11 @@ class FileOpsApplicationTests {
 		long chunkSize = (long) Math.ceil((double) fileSize / totalChunks);
 
 		// 使用固定线程池模拟高并发
-		ExecutorService executor = Executors.newFixedThreadPool(100);
+		ExecutorService executor = Executors.newFixedThreadPool(200);
 		CountDownLatch latch = new CountDownLatch(totalChunks * repeatTimes);
 
 		System.out.println("开始分片上传测试，文件大小: " + (fileSize / 1024 / 1024 / 1024) + "GB");
-
+		LocalDateTime startTime = LocalDateTime.now();
 		// 2. 模拟多线程重复上传
 		for (int i = 0; i < totalChunks; i++) {
 			final int chunkIndex = i;
@@ -95,7 +97,7 @@ class FileOpsApplicationTests {
 		while (waitTime < 120) { // 考虑到 10GB 合并可能超过 60 秒，建议放宽到 120
 			if (Files.exists(targetPath)) {
 				long currentSize = Files.size(targetPath);
-				System.out.println("等待合并中 (进度: " + (currentSize * 100 / fileSize) + "%)...");
+				log.info("等待合并中 (进度: {}%)...", (currentSize * 100 / fileSize));
 				if (currentSize == fileSize) {
 					break;
 				}
@@ -105,6 +107,9 @@ class FileOpsApplicationTests {
 			Thread.sleep(1000);
 			waitTime++;
 		}
+
+		LocalDateTime endTime = LocalDateTime.now();
+		log.info("从并发分片上传到文件拼接完成一共耗时: {}s", Duration.between(startTime, endTime).toSeconds());
 
 		// 4. 断言
 		assertTrue(Files.exists(targetPath), "文件应存在于上传目录下");
