@@ -1,0 +1,31 @@
+使用 Lua 脚本可以将“添加分片索引”、“获取当前总数”以及“判断是否等于总片数”这三个动作合并成一个原子操作。只有刚好让计数器达到总数的那唯一一个线程，才会收到“允许合并”的信号。
+
+// 1. 定义脚本
+private static final String UPLOAD_CHECK_LUA =
+    "redis.call('SADD', KEYS[1], ARGV[1]); " +
+    "if redis.call('SCARD', KEYS[1]) == tonumber(ARGV[2]) then return 1 else return 0 end";
+
+public void slicedUpload(...) {
+    // ... 前面的加锁逻辑 ...
+
+    try {
+        saveToLocalStorage(file, fileId, chunkIndex);
+
+        // 使用 Lua 脚本原子化处理
+        Long result = redisTemplate.execute(
+            new DefaultRedisScript<>(UPLOAD_CHECK_LUA, Long.class),
+            Collections.singletonList("slicedUpload:" + fileId),
+            chunkIndex.toString(),
+            totalChunks.toString()
+        );
+
+        // 只有返回 1 的那个线程才触发合并
+        if (Long.valueOf(1).equals(result)) {
+            log.info("恭喜线程 {}，你是天选之子，由你发起合并", chunkIndex);
+            fileMergeService.mergeChunksAsync(fileId, totalChunks, fileName);
+        }
+
+    } finally {
+        // ... 释放锁逻辑 ...
+    }
+}

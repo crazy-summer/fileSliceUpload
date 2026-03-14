@@ -4,13 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.Collections;
@@ -46,12 +43,14 @@ public class FileOperationService {
                 try {
                     // 2. 执行上传逻辑...
                     saveToLocalStorage(file, fileId, chunkIndex);
-                }finally {
                     // 上传成功后，将索引记录到 Redis Set 中
                     redisTemplate.opsForSet().add(redisKey, chunkIndex.toString());
                     // 可选：设置过期时间（防止脏数据堆积）
                     redisTemplate.expire(redisKey, Duration.ofDays(7));
-
+                } catch (Exception e) {
+                    log.error("分片 {} 上传失败", chunkIndex, e);
+                    throw e; // 继续抛出，让外层感知失败
+                }finally {
                     // 原子释放锁 (Lua 脚本)
                     // 解决“A 删了 B 的锁”的问题
                     redisTemplate.execute(
